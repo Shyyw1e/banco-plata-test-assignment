@@ -101,7 +101,7 @@ func load(envFile string, lookup func(string) (string, bool)) (Config, error) {
 			OperationTimeout: p.duration("DB_OPERATION_TIMEOUT", "2s"),
 		},
 		Worker: WorkerConfig{
-			Count:            p.integer("WORKER_COUNT", "2", 1),
+			Count:            p.integer("WORKER_COUNT", "5", 1),
 			PollInterval:     p.duration("QUEUE_POLL_INTERVAL", "500ms"),
 			MaxPending:       p.integer("QUEUE_MAX_PENDING", "1000", 1),
 			LeaseDuration:    p.duration("JOB_LEASE_DURATION", "30s"),
