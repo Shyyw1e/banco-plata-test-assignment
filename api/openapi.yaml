@@ -1,0 +1,559 @@
+openapi: 3.0.3
+info:
+  title: Currency Quotes API
+  version: 1.0.0
+  description: 'Контракт проектируемого асинхронного сервиса; HTTP-реализация пока отсутствует.
+
+    Обновления инициируются клиентом. POST сохраняет задание, фоновый воркер получает дневной курс Frankfurter/ECB,
+    клиент опрашивает GET по ID.
+
+    Поддерживаются шесть направленных пар между EUR, USD и MXN. Сохранённая котировка остаётся доступной
+    при отказе провайдера.
+
+    Идентификаторы, результаты и ключи пока автоматически не удаляются. Retention будет определён отдельно;
+    это не обещание бессрочного хранения.
+
+    Аутентификация не входит в текущий контракт; пространство ключей идемпотентности общее.
+
+    Во всех ответах API используется application/json. Состояние failed возвращается по GET с HTTP 200,
+    поскольку чтение задания успешно.'
+servers:
+- url: http://localhost:8080
+  description: Локальное окружение после реализации сервиса
+tags:
+- name: Quotes
+  description: Асинхронное обновление и чтение котировок
+paths:
+  /v1/quote-updates:
+    post:
+      tags:
+      - Quotes
+      operationId: createQuoteUpdate
+      summary: Принять запрос обновления
+      description: 'Возвращает 202 только после успешной фиксации задания. Внешний API в обработчике не
+        вызывается. Тело — ровно один JSON-объект, не более 4096 байт, без неизвестных полей; null, пустое
+        тело и дополнительные JSON-значения дают 400.
+
+        Без Idempotency-Key каждый POST создаёт новое задание. Один ключ и одна нормализованная пара возвращают
+        прежний ID: 202 для queued/processing, 200 для succeeded/failed. Ключ с другой парой даёт 409.
+        Повтор не расходует ёмкость очереди; для нового обновления после failed нужен новый ключ.
+
+        Первичный ответ содержит исходный статус queued, даже если воркер уже начал работу. Принятие не
+        гарантирует успех провайдера. При разрыве соединения или 503 после попытки commit исход может
+        быть неизвестен; повтор с тем же ключом позволяет найти принятое задание.'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        description: Необязательный непрозрачный ключ. От 1 до 128 печатных ASCII-символов без пробелов;
+          это одновременно ограничение в байтах. Регистр значим. Пустой или повторяющийся заголовок отклоняется
+          с 400; рекомендуемый ключ — случайный UUID.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: ^[!-~]+$
+        example: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+      requestBody:
+        required: true
+        description: Content-Type application/json; верхняя граница тела — 4096 байт.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUpdate'
+            examples:
+              normalized:
+                value:
+                  pair: EUR/MXN
+              lowercase:
+                value:
+                  pair: eur/mxn
+      responses:
+        '202':
+          description: Новое или уже существующее активное задание.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveReceipt'
+              examples:
+                queued:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    status: queued
+                processing:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    status: processing
+          headers: &id001
+            Location:
+              description: Путь для чтения состояния и результата этого задания.
+              schema:
+                type: string
+              example: /v1/quote-updates/c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+        '200':
+          description: Повтор ключа для терминального задания; результат доступен по Location.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerminalReceipt'
+              examples:
+                succeeded:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    status: succeeded
+                failed:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    status: failed
+          headers: *id001
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnsupportedPair'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/quote-updates/{id}:
+    get:
+      tags:
+      - Quotes
+      operationId: getQuoteUpdate
+      summary: Получить состояние и результат обновления
+      description: Любое существующее состояние возвращается с 200. У queued/processing нет цены и времени
+        результата. У failed есть стабильный код ошибки без ответа источника. Клиент может начинать опрос
+        с интервала 1 секунда и увеличивать паузу.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: Идентификатор обновления в канонической записи UUID.
+        schema:
+          $ref: '#/components/schemas/UpdateID'
+      responses:
+        '200':
+          description: Состояние задания; поля результата присутствуют только при успехе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Update'
+              examples:
+                queued:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    pair: EUR/MXN
+                    status: queued
+                processing:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    pair: EUR/MXN
+                    status: processing
+                succeeded:
+                  value: &id002
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    pair: EUR/MXN
+                    status: succeeded
+                    price: '20.1234000000'
+                    updated_at: '2026-09-29T10:00:00Z'
+                    source_date: '2026-09-28'
+                    source: frankfurter:ecb
+                failed:
+                  value:
+                    id: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+                    pair: EUR/MXN
+                    status: failed
+                    error:
+                      code: provider_unavailable
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/quotes/latest:
+    get:
+      tags:
+      - Quotes
+      operationId: getLatestQuote
+      summary: Получить последнее успешное значение пары
+      description: Выбирается максимальная source_date, затем updated_at, затем ID по убыванию. Запоздавший
+        ответ с более старой датой источника не вытесняет свежую дату. Неуспешное новое задание не удаляет
+        предыдущий успех. Если успеха ещё нет, возвращается 404. Пара передаётся как pair=EUR%2FMXN; отсутствие
+        или повтор параметра pair даёт 400.
+      parameters:
+      - name: pair
+        in: query
+        required: true
+        description: Направленная пара; значение нормализуется к верхнему регистру.
+        schema:
+          $ref: '#/components/schemas/PairInput'
+      responses:
+        '200':
+          description: Последний успешный результат согласно порядку даты источника.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SucceededUpdate'
+              examples:
+                latest:
+                  value: *id002
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnsupportedPair'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  schemas:
+    UpdateID:
+      type: string
+      format: uuid
+      pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
+      example: c5ef28c5-7f88-47e7-85e2-fc95771a5aba
+    PairInput:
+      type: string
+      pattern: ^[A-Za-z]{3}/[A-Za-z]{3}$
+      minLength: 7
+      maxLength: 7
+      description: Количество второй валюты за одну первую. ASCII-буквы нормализуются к верхнему регистру;
+        пробелы не допускаются. Одинаковые валюты дают 400; неподдерживаемая пара корректного формата
+        — 422.
+      example: eur/mxn
+    Pair:
+      type: string
+      enum:
+      - EUR/USD
+      - EUR/MXN
+      - USD/EUR
+      - USD/MXN
+      - MXN/EUR
+      - MXN/USD
+    Price:
+      type: string
+      pattern: ^(0|[1-9][0-9]{0,9})\.[0-9]{10}$
+      not:
+        enum:
+        - '0.0000000000'
+      description: Положительное десятичное значение numeric(20,10), округлённое half-even до 10 знаков.
+        Передаётся строкой; NaN, бесконечность и ноль запрещены.
+      example: '20.1234000000'
+    UpdatedAt:
+      type: string
+      format: date-time
+      pattern: Z$
+      description: Время успешного сохранения результата в сервисе, RFC 3339, UTC. Это не время публикации
+        рыночной цены.
+      example: '2026-09-29T10:00:00Z'
+    SourceDate:
+      type: string
+      format: date
+      description: Дата дневного курса, полученная от источника.
+      example: '2026-09-28'
+    CreateUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - pair
+      properties:
+        pair:
+          $ref: '#/components/schemas/PairInput'
+    ActiveReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/UpdateID'
+        status:
+          type: string
+          enum:
+          - queued
+          - processing
+    TerminalReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/UpdateID'
+        status:
+          type: string
+          enum:
+          - succeeded
+          - failed
+    PendingUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - pair
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/UpdateID'
+        pair:
+          $ref: '#/components/schemas/Pair'
+        status:
+          type: string
+          enum:
+          - queued
+          - processing
+    SucceededUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - pair
+      - status
+      - price
+      - updated_at
+      - source_date
+      - source
+      properties:
+        id:
+          $ref: '#/components/schemas/UpdateID'
+        pair:
+          $ref: '#/components/schemas/Pair'
+        status:
+          type: string
+          enum:
+          - succeeded
+        price:
+          $ref: '#/components/schemas/Price'
+        updated_at:
+          $ref: '#/components/schemas/UpdatedAt'
+        source_date:
+          $ref: '#/components/schemas/SourceDate'
+        source:
+          type: string
+          enum:
+          - frankfurter:ecb
+    FailedUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - pair
+      - status
+      - error
+      properties:
+        id:
+          $ref: '#/components/schemas/UpdateID'
+        pair:
+          $ref: '#/components/schemas/Pair'
+        status:
+          type: string
+          enum:
+          - failed
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          properties:
+            code:
+              type: string
+              enum:
+              - provider_unavailable
+              - provider_rejected
+              - provider_invalid_response
+              - attempts_exhausted
+              description: Недоступность источника после повторов; постоянный отказ источника; недопустимый
+                ответ; исчерпание попыток при восстановлении соответственно.
+    Update:
+      oneOf:
+      - $ref: '#/components/schemas/PendingUpdate'
+      - $ref: '#/components/schemas/SucceededUpdate'
+      - $ref: '#/components/schemas/FailedUpdate'
+      discriminator:
+        propertyName: status
+        mapping:
+          queued: '#/components/schemas/PendingUpdate'
+          processing: '#/components/schemas/PendingUpdate'
+          succeeded: '#/components/schemas/SucceededUpdate'
+          failed: '#/components/schemas/FailedUpdate'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          - message
+          properties:
+            code:
+              type: string
+              enum:
+              - invalid_json
+              - invalid_pair
+              - invalid_id
+              - invalid_idempotency_key
+              - invalid_query
+              - update_not_found
+              - quote_not_found
+              - idempotency_conflict
+              - unsupported_pair
+              - request_too_large
+              - unsupported_media_type
+              - database_unavailable
+              - queue_full
+              - internal_error
+            message:
+              type: string
+              description: Диагностическое сообщение без секретов и технических подробностей. Клиент обрабатывает
+                стабильный code, а не текст message.
+  responses:
+    BadRequest:
+      description: Неверный запрос.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalid_json:
+              value:
+                error:
+                  code: invalid_json
+                  message: Invalid JSON body
+            invalid_pair:
+              value:
+                error:
+                  code: invalid_pair
+                  message: Invalid currency pair
+            invalid_id:
+              value:
+                error:
+                  code: invalid_id
+                  message: Invalid update ID
+            invalid_idempotency_key:
+              value:
+                error:
+                  code: invalid_idempotency_key
+                  message: Invalid idempotency key
+            invalid_query:
+              value:
+                error:
+                  code: invalid_query
+                  message: Invalid query parameters
+    NotFound:
+      description: ID не найден или для пары нет успешного результата.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            update_not_found:
+              value:
+                error:
+                  code: update_not_found
+                  message: Update not found
+            quote_not_found:
+              value:
+                error:
+                  code: quote_not_found
+                  message: Quote not found
+    Conflict:
+      description: Ключ уже использован с другой нормализованной парой.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            conflict:
+              value:
+                error:
+                  code: idempotency_conflict
+                  message: Idempotency key belongs to a different pair
+    UnsupportedPair:
+      description: Формат пары корректен, но пара не поддерживается.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unsupported_pair:
+              value:
+                error:
+                  code: unsupported_pair
+                  message: Currency pair is not supported
+    PayloadTooLarge:
+      description: Тело запроса превышает 4096 байт.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            too_large:
+              value:
+                error:
+                  code: request_too_large
+                  message: Request body exceeds 4096 bytes
+    UnsupportedMediaType:
+      description: Требуется Content-Type application/json; допускается параметр charset=utf-8.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            media_type:
+              value:
+                error:
+                  code: unsupported_media_type
+                  message: Content-Type must be application/json
+    InternalError:
+      description: Неожиданная внутренняя ошибка без технических подробностей.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internal_error:
+              value:
+                error:
+                  code: internal_error
+                  message: Internal server error
+    Unavailable:
+      description: БД недоступна или очередь заполнена. При неопределённом исходе commit повторять POST
+        с тем же ключом.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            database_unavailable:
+              value:
+                error:
+                  code: database_unavailable
+                  message: Database is unavailable
+            queue_full:
+              value:
+                error:
+                  code: queue_full
+                  message: Update queue is full
+      headers:
+        Retry-After:
+          description: Рекомендуемая пауза в целых секундах до следующей попытки.
+          schema:
+            type: string
+            pattern: ^[1-9][0-9]*$
+          example: '1'
