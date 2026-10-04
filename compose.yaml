@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quotes}
+      POSTGRES_USER: ${POSTGRES_USER:-quotes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quotes_local}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGUSER: ${POSTGRES_USER:-quotes}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-quotes_local}
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://postgres:5432/${POSTGRES_DB:-quotes}?sslmode=disable
+    command: ["up"]
+
+volumes:
+  postgres_data:

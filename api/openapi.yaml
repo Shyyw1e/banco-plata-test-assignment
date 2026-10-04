@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Currency Quotes API
   version: 1.0.0
-  description: 'Контракт проектируемого асинхронного сервиса; HTTP-реализация пока отсутствует.
+  description: 'Контракт асинхронного сервиса; HTTP-адаптер реализован.
 
     Обновления инициируются клиентом. POST сохраняет задание, фоновый воркер получает дневной курс Frankfurter/ECB,
     клиент опрашивает GET по ID.
@@ -116,6 +116,8 @@ paths:
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
           $ref: '#/components/responses/UnsupportedPair'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -174,6 +176,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -211,6 +215,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnsupportedPair'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -418,11 +424,24 @@ components:
               - database_unavailable
               - queue_full
               - internal_error
+              - method_not_allowed
+              - route_not_found
             message:
               type: string
               description: Диагностическое сообщение без секретов и технических подробностей. Клиент обрабатывает
                 стабильный code, а не текст message.
   responses:
+    MethodNotAllowed:
+      description: Метод не поддерживается маршрутом. Неизвестные пути возвращают 404 с кодом route_not_found в ErrorResponse.
+      headers:
+        Allow:
+          schema:
+            type: string
+          description: Поддерживаемые методы.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
     BadRequest:
       description: Неверный запрос.
       content:
