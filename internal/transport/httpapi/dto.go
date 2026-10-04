@@ -43,27 +43,23 @@ func toUpdateResponse(update *domain.QuoteUpdate) (*updateResponse, error) {
 	if update == nil {
 		return nil, domain.ErrInvalidUpdate
 	}
-	resp := updateResponse{}
-	if update != nil {
-		if err := update.Validate(); err != nil {
-			return nil, err
-		}
+	if err := update.Validate(); err != nil {
+		return nil, err
+	}
 
-		resp = updateResponse{
-			ID:     update.ID.String(),
-			Pair:   update.Pair.String(),
-			Status: string(update.Status),
-		}
-		switch update.Status {
-		case domain.StatusSucceeded:
-			resp.Price = update.Result.Quote.Price.String()
-			resp.UpdatedAt = update.Result.UpdatedAt.UTC().Format(time.RFC3339Nano)
-			resp.SourceDate = update.Result.Quote.SourceDate.Format("2006-01-02")
-			resp.Source = update.Result.Quote.Source
-		case domain.StatusFailed:
-			resp.Error = &jobErrorResponse{Code: string(*update.ErrorCode)}
-		}
-
+	resp := updateResponse{
+		ID:     update.ID.String(),
+		Pair:   update.Pair.String(),
+		Status: string(update.Status),
+	}
+	switch update.Status {
+	case domain.StatusSucceeded:
+		resp.Price = update.Result.Quote.Price.String()
+		resp.UpdatedAt = update.Result.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		resp.SourceDate = update.Result.Quote.SourceDate.Format("2006-01-02")
+		resp.Source = update.Result.Quote.Source
+	case domain.StatusFailed:
+		resp.Error = &jobErrorResponse{Code: string(*update.ErrorCode)}
 	}
 
 	return &resp, nil
