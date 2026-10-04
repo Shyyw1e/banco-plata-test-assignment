@@ -2,7 +2,6 @@ package frankfurter
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/Shyyw1e/banco-plata-test-assignment/internal/domain"
 	"io"
@@ -54,12 +53,9 @@ func (c *Client) Fetch(ctx context.Context, pair domain.Pair) (*domain.Quote, er
 	if int64(len(data)) > maxResponseBytes {
 		return nil, invalidResponse(errors.New("response exceeds size limit"))
 	}
-	var dto *rateResponse
-	if err = json.Unmarshal(data, &dto); err != nil {
+	dto, err := decodeRate(data)
+	if err != nil {
 		return nil, invalidResponse(err)
-	}
-	if dto == nil {
-		return nil, invalidResponse(errors.New("null response"))
 	}
 	quote, err := toQuote(*dto, pair)
 	if err != nil {

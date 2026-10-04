@@ -5,7 +5,7 @@ INSERT INTO quote_updates (id, pair) VALUES ('00000000-0000-4000-8000-0000000000
 INSERT INTO quote_updates (id, pair, status, attempts, lease_until)
 VALUES ('00000000-0000-4000-8000-000000000002', 'USD/EUR', 'processing', 1, now() + interval '30 seconds');
 INSERT INTO quote_updates (id, pair, status, attempts, completed_at, price, source_date, source)
-VALUES ('00000000-0000-4000-8000-000000000003', 'EUR/MXN', 'succeeded', 1, now(), 20.1234567890, current_date, 'frankfurter');
+VALUES ('00000000-0000-4000-8000-000000000003', 'EUR/MXN', 'succeeded', 1, now(), 20.1234567890, current_date, 'frankfurter:ecb');
 INSERT INTO quote_updates (id, pair, status, attempts, completed_at, last_error_code)
 VALUES ('00000000-0000-4000-8000-000000000004', 'MXN/EUR', 'failed', 1, now(), 'attempts_exhausted');
 

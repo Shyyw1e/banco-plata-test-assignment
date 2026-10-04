@@ -54,6 +54,9 @@ func toUpdateResponse(update *domain.QuoteUpdate) (*updateResponse, error) {
 	}
 	switch update.Status {
 	case domain.StatusSucceeded:
+		if update.Result.Quote.Source != "frankfurter:ecb" {
+			return nil, domain.ErrInvalidQuote
+		}
 		resp.Price = update.Result.Quote.Price.String()
 		resp.UpdatedAt = update.Result.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		resp.SourceDate = update.Result.Quote.SourceDate.Format("2006-01-02")

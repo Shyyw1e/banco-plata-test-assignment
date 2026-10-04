@@ -1,0 +1,9 @@
+# Local environment files
+.env
+.env.*
+!.env.example
+roadmap.md
+task.md
+implementation-audit.md
+choice.md
+graphify-out/*

@@ -169,6 +169,9 @@ func TestReadStates(t *testing.T) {
 			wantFields := 3
 			if status == domain.StatusSucceeded {
 				wantFields = 7
+				if body["source"] != "frankfurter:ecb" {
+					t.Fatal("invalid source")
+				}
 				if body["price"] != "1.1234567890" || body["updated_at"] != "2026-10-02T01:02:03Z" || body["source_date"] != "2026-10-01" {
 					t.Fatal(body)
 				}

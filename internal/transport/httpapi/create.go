@@ -1,8 +1,6 @@
 package httpapi
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"github.com/Shyyw1e/banco-plata-test-assignment/internal/domain"
 	"github.com/Shyyw1e/banco-plata-test-assignment/internal/usecase"
@@ -49,31 +47,12 @@ func (h *Handler) CreateUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var request *createRequest
-	if err = dec.Decode(&request); err != nil || request == nil {
+	request, err := decodeCreate(data)
+	if err != nil {
 		h.writeError(w, 400, "invalid_json", "Invalid JSON body")
 		return
 	}
-	var extra any
-	if err = dec.Decode(&extra); err != io.EOF {
-		h.writeError(w, 400, "invalid_json", "Invalid JSON body")
-		return
-	}
-	// encoding/json matches struct field names case-insensitively, while the
-	// API schema allows only the exact property name "pair".
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		h.writeError(w, 400, "invalid_json", "Invalid JSON body")
-		return
-	}
-	for field := range fields {
-		if field != "pair" {
-			h.writeError(w, 400, "invalid_json", "Invalid JSON body")
-			return
-		}
-	}
+
 	pair, err := domain.ParsePair(request.Pair)
 	if err != nil {
 		h.handleServiceError(w, r, err, "")

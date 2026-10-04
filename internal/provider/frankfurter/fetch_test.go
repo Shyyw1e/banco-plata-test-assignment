@@ -93,6 +93,9 @@ func TestStatuses(t *testing.T) {
 				code = domain.CodeRejected
 			}
 			pe := assertProvider(t, err, code, retry)
+			if pe.RateLimited != (status == 429) {
+				t.Fatal("incorrect rate limit classification")
+			}
 			if retry && pe.RetryAfter != 12*time.Second {
 				t.Fatal(pe.RetryAfter)
 			}

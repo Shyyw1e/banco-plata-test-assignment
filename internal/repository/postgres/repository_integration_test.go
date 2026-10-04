@@ -138,9 +138,9 @@ func TestRepositoryIntegration(t *testing.T) {
 		if e != nil || u.ErrorCode == nil || *u.ErrorCode != domain.CodeAttemptsExhausted {
 			t.Fatalf("failed: %v %v", u, e)
 		}
-		exec("UPDATE quote_updates SET status='succeeded',last_error_code=NULL,price=1.1234567890,source='frankfurter',source_date='2026-10-02' WHERE id=$1", id.String())
+		exec("UPDATE quote_updates SET status='succeeded',last_error_code=NULL,price=1.1234567890,source='frankfurter:ecb',source_date='2026-10-02' WHERE id=$1", id.String())
 		older := newID()
-		exec("INSERT INTO quote_updates(id,pair,status,attempts,completed_at,price,source,source_date) VALUES($1,'EUR/USD','succeeded',1,now()+interval '1 hour',2,'frankfurter','2026-10-01')", older.String())
+		exec("INSERT INTO quote_updates(id,pair,status,attempts,completed_at,price,source,source_date) VALUES($1,'EUR/USD','succeeded',1,now()+interval '1 hour',2,'frankfurter:ecb','2026-10-01')", older.String())
 		u, e = repo.GetLatest(ctx, pair)
 		if e != nil || u.ID != id || u.Result.Quote.Price.String() != "1.1234567890" {
 			t.Fatalf("latest: %v %v", u, e)

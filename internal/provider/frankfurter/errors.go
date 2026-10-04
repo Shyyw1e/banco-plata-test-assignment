@@ -18,7 +18,7 @@ func statusError(status int, after time.Duration) error {
 	if !retry {
 		after = 0
 	}
-	return &usecase.ProviderError{Code: code, Retryable: retry, RetryAfter: after, Cause: fmt.Errorf("upstream HTTP status %d", status)}
+	return &usecase.ProviderError{Code: code, RateLimited: status == 429, Retryable: retry, RetryAfter: after, Cause: fmt.Errorf("upstream HTTP status %d", status)}
 }
 func invalidResponse(cause error) error {
 	return &usecase.ProviderError{Code: domain.CodeInvalidResponse, Cause: cause}
