@@ -33,6 +33,13 @@ type completionResult struct {
 func (r completionResult) LastInsertId() (int64, error) { return 0, errors.New("unsupported") }
 func (r completionResult) RowsAffected() (int64, error) { return r.n, r.err }
 func (c *completeConn) ExecContext(ctx context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
+	if q == "SELECT id FROM quote_updates WHERE id=$1 FOR UPDATE" {
+		c.calls = append(c.calls, "lock")
+		if c.lockErr != nil {
+			return nil, c.lockErr
+		}
+		return driver.RowsAffected(1), nil
+	}
 	if strings.HasPrefix(q, "UPDATE quote_updates") {
 		c.calls = append(c.calls, "complete")
 		if len(args) != 6 || args[2].Value != "1.1234567890" || args[3].Value != "frankfurter:ecb" {

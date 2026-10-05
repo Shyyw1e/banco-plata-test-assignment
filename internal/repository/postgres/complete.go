@@ -40,6 +40,11 @@ func (r *Repository) Succeed(ctx context.Context, attempt domain.Attempt, quote 
 	if _, err = tx.ExecContext(ctx, "SET LOCAL synchronous_commit = on"); err != nil {
 		return fmt.Errorf("set completion durability: %w", err)
 	}
+	// Lock before evaluating the clock-dependent predicate. A direct UPDATE
+	// may evaluate it before waiting on an unchanged, locked tuple.
+	if _, err = tx.ExecContext(ctx, "SELECT id FROM quote_updates WHERE id=$1 FOR UPDATE", attempt.ID.String()); err != nil {
+		return fmt.Errorf("lock attempt for transition: %w", err)
+	}
 	const query = `UPDATE quote_updates
  SET status = 'succeeded', price = $3::numeric, source = $4, source_date = $5::date,
      completed_at = clock_timestamp(), lease_until = NULL, last_error_code = NULL
