@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -59,7 +60,7 @@ func run(ctx context.Context, cfg config.Config, log logger.Logger) error {
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", cfg.HTTP.Addr)
 	if err != nil {
-		return errors.New("http: cannot bind configured address")
+		return fmt.Errorf("http: cannot bind configured address %q: %w", cfg.HTTP.Addr, err)
 	}
 	defer listener.Close()
 	var stopping atomic.Bool
