@@ -42,12 +42,13 @@ type Processor struct {
 	provider  QuoteProvider
 	limiter   repository.PermitIssuer
 	failures  *FailureHandler
+	breaker   *CircuitBreaker
 	config    ProcessorConfig
 	interval  time.Duration
 }
 
-func NewProcessor(claimer repository.AttemptClaimer, completer repository.AttemptCompleter, provider QuoteProvider, limiter repository.PermitIssuer, failures *FailureHandler, cfg ProcessorConfig) (*Processor, error) {
-	if claimer == nil || completer == nil || provider == nil || limiter == nil || failures == nil || failures.policy == nil {
+func NewProcessor(claimer repository.AttemptClaimer, completer repository.AttemptCompleter, provider QuoteProvider, limiter repository.PermitIssuer, failures *FailureHandler, breaker *CircuitBreaker, cfg ProcessorConfig) (*Processor, error) {
+	if claimer == nil || completer == nil || provider == nil || limiter == nil || failures == nil || failures.policy == nil || breaker == nil {
 		return nil, errors.New("processor: missing dependency")
 	}
 	if cfg.Provider == "" || strings.TrimSpace(cfg.Provider) != cfg.Provider || cfg.Provider != failures.provider || cfg.MaxAttempts <= 0 || int64(cfg.MaxAttempts) != failures.policy.maxAttempts || cfg.LeaseDuration < time.Microsecond || cfg.PollInterval <= 0 || cfg.RequestsPerSecond <= 0 || cfg.RequestsPerSecond > int(time.Second/time.Microsecond) {
@@ -61,7 +62,7 @@ func NewProcessor(claimer repository.AttemptClaimer, completer repository.Attemp
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Processor{claimer, completer, provider, limiter, failures, cfg, interval}, nil
+	return &Processor{claimer, completer, provider, limiter, failures, breaker, cfg, interval}, nil
 }
 
 // Process performs at most one Fetch. ctx belongs to the application lifetime,
@@ -70,6 +71,14 @@ func (p *Processor) Process(ctx context.Context) (result ProcessResult, err erro
 	if err = ctx.Err(); err != nil {
 		return result, err
 	}
+	ticket, delay := p.breaker.Acquire()
+	if ticket == nil {
+		if delay <= 0 {
+			delay = p.config.PollInterval
+		}
+		return ProcessResult{Outcome: ProcessWait, Wait: delay}, nil
+	}
+	defer ticket.Release()
 	started := p.config.Now()
 	permit, err := p.limiter.TryPermit(ctx, p.config.Provider, p.interval)
 	if err != nil {
@@ -89,6 +98,9 @@ func (p *Processor) Process(ctx context.Context) (result ProcessResult, err erro
 	}
 	fresh := func() bool { elapsed := p.config.Now().Sub(started); return elapsed >= 0 && elapsed < permit.ValidFor }
 	if !fresh() {
+		return ProcessResult{Outcome: ProcessWait, Wait: p.config.PollInterval}, nil
+	}
+	if !ticket.Valid() {
 		return ProcessResult{Outcome: ProcessWait, Wait: p.config.PollInterval}, nil
 	}
 	attempt, err := p.claimer.Claim(ctx, p.config.MaxAttempts, p.config.LeaseDuration)
@@ -132,6 +144,7 @@ func (p *Processor) Process(ctx context.Context) (result ProcessResult, err erro
 			fetchErr = &ProviderError{Code: domain.CodeInvalidResponse, Cause: domain.ErrInvalidQuote}
 		}
 	}
+	ticket.Observe(fetchErr)
 	if fetchErr != nil {
 		err = p.failures.Handle(ctx, *attempt, fetchErr)
 	} else {

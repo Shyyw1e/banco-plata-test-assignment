@@ -38,7 +38,11 @@ func run(ctx context.Context, cfg config.Config, log logger.Logger) error {
 	if err != nil {
 		return err
 	}
-	processor, err := usecase.NewProcessor(repo, repo, provider, repo, failures, usecase.ProcessorConfig{
+	breaker, err := usecase.NewCircuitBreaker(cfg.Provider.CircuitFailureThreshold, cfg.Provider.CircuitOpenDuration, nil)
+	if err != nil {
+		return err
+	}
+	processor, err := usecase.NewProcessor(repo, repo, provider, repo, failures, breaker, usecase.ProcessorConfig{
 		Provider: "frankfurter", RequestsPerSecond: cfg.Provider.RequestsPerSecond, MaxAttempts: cfg.Worker.MaxAttempts, LeaseDuration: cfg.Worker.LeaseDuration, PollInterval: cfg.Worker.PollInterval,
 	})
 	if err != nil {

@@ -358,6 +358,32 @@ func TestApplicationE2E(t *testing.T) {
 			})
 		}
 	})
+	t.Run("breaker pauses and probes", func(t *testing.T) {
+		f := newFixture(t, binary)
+		times := make(chan time.Time, 4)
+		var calls atomic.Int32
+		f.set(func(w http.ResponseWriter, r *http.Request) {
+			times <- time.Now()
+			if calls.Add(1) <= 2 {
+				w.WriteHeader(503)
+				return
+			}
+			success(w, r)
+		})
+		a := f.start(map[string]string{"PROVIDER_CIRCUIT_FAILURE_THRESHOLD": "2", "PROVIDER_CIRCUIT_OPEN_DURATION": "300ms"})
+		id := a.post("EUR/USD")
+		a.terminal(id, "succeeded")
+		if calls.Load() != 3 {
+			t.Fatal("unexpected probe calls", calls.Load())
+		}
+		<-times
+		second, third := <-times, <-times
+		if third.Sub(second) < 300*time.Millisecond {
+			t.Fatal("breaker pause bypassed", third.Sub(second))
+		}
+		a.stop()
+	})
+
 	t.Run("restart queued processing and exhausted", func(t *testing.T) {
 		f := newFixture(t, binary)
 		entered, ended := make(chan struct{}), make(chan struct{})

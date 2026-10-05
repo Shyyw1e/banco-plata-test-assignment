@@ -171,7 +171,7 @@ func TestProcessorScenarios(t *testing.T) {
 				}
 				return quote, tc.fetchErr
 			})
-			p, err := usecase.NewProcessor(store, store, provider, store, handler, usecase.ProcessorConfig{Provider: "frankfurter", RequestsPerSecond: 2, MaxAttempts: 3, LeaseDuration: 30 * time.Second, PollInterval: 100 * time.Millisecond, Now: func() time.Time { return clock }})
+			p, err := usecase.NewProcessor(store, store, provider, store, handler, newTestBreaker(t), usecase.ProcessorConfig{Provider: "frankfurter", RequestsPerSecond: 2, MaxAttempts: 3, LeaseDuration: 30 * time.Second, PollInterval: 100 * time.Millisecond, Now: func() time.Time { return clock }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -209,11 +209,11 @@ func TestProcessorConfiguration(t *testing.T) {
 	} {
 		cfg := valid
 		mutate(&cfg)
-		if _, err := usecase.NewProcessor(store, store, provider, store, handler, cfg); err == nil {
+		if _, err := usecase.NewProcessor(store, store, provider, store, handler, newTestBreaker(t), cfg); err == nil {
 			t.Fatal("invalid config accepted", cfg)
 		}
 	}
-	if _, err := usecase.NewProcessor(nil, store, provider, store, handler, valid); err == nil {
+	if _, err := usecase.NewProcessor(nil, store, provider, store, handler, newTestBreaker(t), valid); err == nil {
 		t.Fatal("nil dependency accepted")
 	}
 	// Three RPS rounds up to 333333334 ns rather than exceeding the budget.
@@ -225,7 +225,7 @@ func TestProcessorConfiguration(t *testing.T) {
 		}
 		return repository.PermitResult{RetryAfter: time.Second}, nil
 	}
-	p, err := usecase.NewProcessor(store, store, provider, store, handler, cfg)
+	p, err := usecase.NewProcessor(store, store, provider, store, handler, newTestBreaker(t), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestProcessorInvalidAdapterResults(t *testing.T) {
 				t.Fatal("unexpected Fetch")
 				return nil, nil
 			})
-			p, err := usecase.NewProcessor(store, store, provider, store, handler, usecase.ProcessorConfig{Provider: "frankfurter", RequestsPerSecond: 2, MaxAttempts: 3, LeaseDuration: time.Minute, PollInterval: time.Second})
+			p, err := usecase.NewProcessor(store, store, provider, store, handler, newTestBreaker(t), usecase.ProcessorConfig{Provider: "frankfurter", RequestsPerSecond: 2, MaxAttempts: 3, LeaseDuration: time.Minute, PollInterval: time.Second})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -270,4 +270,13 @@ func TestProcessorInvalidAdapterResults(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestBreaker(t *testing.T) *usecase.CircuitBreaker {
+	t.Helper()
+	b, err := usecase.NewCircuitBreaker(5, 30*time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
