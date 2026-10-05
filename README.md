@@ -2,7 +2,7 @@
 
 Тестовое задание на Go. Требования описаны в [task.md](task.md), архитектура и обоснования — в [choice.md](choice.md).
 
-Приложение в `cmd/quotes` связывает HTTP API, очередь PostgreSQL, воркеры, recovery и Frankfurter. При запуске проверяются схема и seed провайдера; миграции выполняются отдельной командой. Добавлены E2E-тесты реального бинарника с локальным провайдером: шесть пар, ошибки, рестарт и два экземпляра. Docker приложения и CI ещё предстоят. Ход разработки отслеживается в [roadmap.md](roadmap.md).
+Приложение в `cmd/quotes` связывает HTTP API, очередь PostgreSQL, воркеры, recovery и Frankfurter. При запуске проверяются схема и seed провайдера; миграции выполняются отдельной командой. Добавлены E2E-тесты реального бинарника с локальным провайдером: шесть пар, ошибки, рестарт и два экземпляра. Подготовлены Docker приложения, Make-команды проверок и GitHub Actions workflow. Ход разработки отслеживается в [roadmap.md](roadmap.md).
 
 ## Конфигурация
 
@@ -75,6 +75,41 @@ go vet ./...
 ```
 
 Тестам конфигурации не нужны PostgreSQL, внешний API или локальный `.env`.
+
+## Docker и команды разработки
+
+Runtime-образ содержит статический бинарник и CA-сертификаты; процесс работает как UID/GID 65532. Shell и `.env` в образ не входят. Сборка использует Go 1.25.2.
+
+После подготовки `.env`:
+
+```sh
+docker compose --env-file .env up -d --wait postgres
+docker compose --env-file .env run --rm migrate up
+docker compose --env-file .env --profile app up -d --build app
+curl http://localhost:8080/health/ready
+docker compose --env-file .env logs -f app
+# Остановка сохраняет volume БД:
+docker compose --env-file .env --profile app down
+```
+
+Миграции выполняются отдельно, перед стартом приложения. Профиль `app` не позволяет случайно запустить его командой только для БД. В контейнере используется адрес БД `postgres:5432`, а не `localhost`. По умолчанию DSN составляется из POSTGRES_USER/PASSWORD/DB; при специальных символах в пароле задайте `APP_DATABASE_URL` с URL-кодированными credentials. Не публикуйте этот URL.
+
+`APP_PORT` задаёт порт хоста (8080 по умолчанию); внутри контейнера сервер слушает 8080. `CONTAINER_STOP_GRACE_PERIOD` по умолчанию равен 20 с и должен оставаться больше `SHUTDOWN_TIMEOUT` (15 с), чтобы Docker не прервал drain раньше времени. `.env` не монтируется в контейнер: Compose передаёт перечисленные переменные процесса.
+
+| Команда | Проверка |
+| --- | --- |
+| `make build` | Бинарник `bin/quotes` |
+| `make test` | Unit-тесты |
+| `make race` | Unit-тесты с детектором гонок |
+| `make vet` | Статический анализ |
+| `make check` | Build, vet, race |
+| `make integration` | Миграции и integration/race на отдельной БД |
+| `make e2e` | Реальные бинарники, локальный провайдер и отдельная БД |
+| `make docker-build` | Образ `quotes:local` |
+
+Путь к Go можно задать через `make GO=/path/to/go ...`. Integration/E2E используют `.env.example`, случайный свободный порт и уникальный Compose-проект; после успеха или ошибки удаляются только созданные ими контейнеры, сеть и volume. Личный `.env` не читается. Старые цели `db-up`, `db-stop`, `migrate-up`, `migrate-version`, `migrate-down` сохранены; rollback удаляет таблицу и данные соответствующей миграции.
+
+Workflow `.github/workflows/ci.yml` выполняет build/vet/unit/race, integration и E2E на Go 1.25.2, затем собирает Docker-образ. Проверки не обращаются к публичному Frankfurter. Удалённый запуск GitHub Actions проверяется после публикации репозитория.
 
 ## Сквозные тесты приложения
 

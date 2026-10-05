@@ -1,0 +1,20 @@
+name: checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.2'
+          cache: true
+      - run: make build vet test race
+      - run: make integration
+      - run: make e2e
+      - run: docker build -t quotes:ci .

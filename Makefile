@@ -15,3 +15,29 @@ migrate-version:
 # Explicitly requested rollback of ONE migration; drops its table and data.
 migrate-down:
 	docker compose run --rm migrate down 1
+
+GO ?= go
+
+.PHONY: build test race vet integration e2e check docker-build
+build:
+	$(GO) build -o bin/quotes ./cmd/quotes
+
+test:
+	$(GO) test ./... -count=1 -timeout=90s
+
+race:
+	$(GO) test -race ./... -count=1 -timeout=90s
+
+vet:
+	$(GO) vet ./...
+
+integration:
+	GO='$(GO)' sh scripts/test-postgres.sh integration
+
+e2e:
+	GO='$(GO)' sh scripts/test-postgres.sh e2e
+
+check: build vet race
+
+docker-build:
+	docker build -t quotes:local .
