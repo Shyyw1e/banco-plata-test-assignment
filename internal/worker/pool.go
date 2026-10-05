@@ -70,7 +70,7 @@ func (p *Pool) processLoop(work, stop context.Context) {
 			backoff = 0
 			switch result.Outcome {
 			case usecase.ProcessDone:
-				p.log.Debug("worker attempt finished", attemptFields(result)...)
+				p.log.Info("worker attempt finished", attemptFields(result)...)
 			case usecase.ProcessIdle:
 				delay = p.config.PollInterval
 			case usecase.ProcessWait:
@@ -115,10 +115,19 @@ func (p *Pool) recoveryLoop(work, stop context.Context) {
 }
 
 func attemptFields(r usecase.ProcessResult) []any {
-	if r.Attempt == nil {
-		return nil
+	outcome := "error"
+	switch r.Outcome {
+	case usecase.ProcessDone:
+		outcome = "processed"
+	case usecase.ProcessIdle:
+		outcome = "idle"
+	case usecase.ProcessWait:
+		outcome = "waiting"
 	}
-	return []any{"update_id", r.Attempt.ID.String(), "pair", r.Attempt.Pair.String(), "attempt", r.Attempt.Number}
+	if r.Attempt == nil {
+		return []any{"outcome", outcome}
+	}
+	return []any{"outcome", outcome, "update_id", r.Attempt.ID.String(), "pair", r.Attempt.Pair.String(), "attempt", r.Attempt.Number}
 }
 func running(work, stop context.Context) bool { return work.Err() == nil && stop.Err() == nil }
 func wait(work, stop context.Context, d time.Duration) bool {

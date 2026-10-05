@@ -2,7 +2,7 @@
 
 Тестовое задание на Go. Требования описаны в [task.md](task.md), архитектура и обоснования — в [choice.md](choice.md).
 
-Сейчас реализованы пакеты `internal/config`, `internal/domain`, `internal/usecase`, `internal/logger`, определены интерфейсы `internal/repository` и подготовлен [OpenAPI-контракт](api/openapi.yaml). HTTP-адаптер, PostgreSQL-адаптер и Frankfurter реализованы; запуск приложения и воркеры ещё не реализованы. Ход разработки отслеживается в [roadmap.md](roadmap.md).
+Приложение в `cmd/quotes` связывает HTTP API, очередь PostgreSQL, воркеры, recovery и Frankfurter. При запуске проверяются схема и seed провайдера; миграции выполняются отдельной командой. Проверен smoke-сценарий бинарника с локальным провайдером. Полный набор E2E, Docker приложения и CI ещё предстоят. Ход разработки отслеживается в [roadmap.md](roadmap.md).
 
 ## Конфигурация
 
@@ -16,7 +16,7 @@ cp .env.example .env
 
 Начальные параметры: 5 воркеров на экземпляр и общий лимит провайдера 2 запроса/с на все экземпляры, включая повторы. Это настройки приложения, а не опубликованная квота Frankfurter.
 
-Пакет конфигурации вызывается из будущей точки входа приложения:
+Пакет конфигурации вызывается один раз из точки входа приложения:
 
 ```go
 cfg, err := config.Load(".env")
@@ -35,6 +35,36 @@ if err != nil {
 
 Для загрузки `.env` используется `github.com/joho/godotenv`; остальные операции пакета выполняются средствами стандартной библиотеки.
 
+## Запуск приложения
+
+После создания `.env` и проверки его настроек:
+
+```sh
+docker compose --env-file .env up -d --wait postgres
+docker compose --env-file .env run --rm migrate up
+go build -o bin/quotes ./cmd/quotes
+./bin/quotes -env-file .env
+```
+
+Без `-env-file` приложение читает только переменные процесса и значения по умолчанию; `DATABASE_URL` обязательна. Файл `.env` автоматически не загружается. Переменные процесса имеют приоритет над файлом.
+
+В другом терминале:
+
+```sh
+curl -i http://localhost:8080/health/ready
+curl -i -X POST http://localhost:8080/v1/quote-updates \
+  -H 'Content-Type: application/json' -d '{"pair":"EUR/USD"}'
+# Подставьте id из ответа POST и повторяйте GET до succeeded или failed:
+curl http://localhost:8080/v1/quote-updates/ID
+curl 'http://localhost:8080/v1/quotes/latest?pair=EUR%2FUSD'
+```
+
+POST возвращает `202` и ID после сохранения задания. `queued`/`processing` означают, что результат ещё не готов; `failed` содержит код ошибки вместо цены. `/health/live` проверяет живость процесса, `/health/ready` — отсутствие остановки и доступность БД. Недоступность Frankfurter не отключает чтение результатов.
+
+`Ctrl+C` или SIGTERM прекращает новые итерации воркеров и HTTP-приём. Активные операции завершаются в пределах общего `SHUTDOWN_TIMEOUT`; затем их контексты отменяются и БД закрывается. Незавершённые задания остаются в PostgreSQL для recovery после истечения lease.
+
+Circuit breaker пока не реализован: `PROVIDER_CIRCUIT_FAILURE_THRESHOLD` и `PROVIDER_CIRCUIT_OPEN_DURATION` читаются конфигурацией, но не влияют на выполнение. Retry, HTTP timeout и общий SQL-limiter работают. Метрики и инфраструктурный HA не заявляются.
+
 ## Проверки
 
 Для разработки и проверок используется **Go 1.25.2**. Директива `go` в `go.mod` задаёт минимальную версию; проверяйте фактический toolchain командой `go version`. Docker и CI будут использовать Go 1.25.2.
@@ -48,7 +78,7 @@ go vet ./...
 
 ## Контракт API
 
-[api/openapi.yaml](api/openapi.yaml) описывает API реализованных обработчиков; запуск приложения ещё не реализован.
+[api/openapi.yaml](api/openapi.yaml) описывает API приложения.
 
 | Операция | Назначение |
 | --- | --- |

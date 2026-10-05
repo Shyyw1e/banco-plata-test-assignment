@@ -7,3 +7,5 @@ task.md
 implementation-audit.md
 choice.md
 graphify-out/*
+# Local build output
+/bin/
