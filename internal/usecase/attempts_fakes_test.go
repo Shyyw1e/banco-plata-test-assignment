@@ -8,7 +8,7 @@ import (
 )
 
 // Callbacks stay test-local. Unexpected calls fail rather than silently succeed.
-// The attempt scenario will use these fakes as it is implemented in T09.
+// Processor scenarios use these fakes to verify ordering and skipped operations.
 type attemptStoreFake struct {
 	claim   func(context.Context, int, time.Duration) (*domain.Attempt, error)
 	succeed func(context.Context, domain.Attempt, domain.Quote) error

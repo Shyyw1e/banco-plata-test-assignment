@@ -104,7 +104,7 @@ func (p *RetryPolicy) backoff(number int64) time.Duration {
 
 // FailureHandler persists a shared 429 pause before recording the job outcome.
 // A blocker error is propagated; the processor must stop new attempts until
-// coordination recovers (T07/T09). It must not fall back to a local limiter.
+// coordination recovers (P02/P04). It must not fall back to a local limiter.
 type FailureHandler struct {
 	recorder repository.AttemptFailureRecorder
 	blocker  repository.ProviderBlocker
